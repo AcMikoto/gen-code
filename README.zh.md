@@ -89,7 +89,7 @@ API Key：设置对应的环境变量（见下方凭据表）或在首次启动�
 
 ### 配置文件
 
-配置位于 `~/.gen/`（用户级）与 `<项目>/.gen/`（项目级，覆盖用户级）。项目根目录下的 `GEN.md` 或 `CLAUDE.md` 会被自动加载到系统 prompt。
+配置位于 `~/.gen/`（用户级）与 `<项目>/.gen/`（项目级，覆盖用户级）。项目 memory 会作为可刷新的 reminder 自动加载，并按 `.gen/GEN.md`、`GEN.md`、`.claude/CLAUDE.md`、`CLAUDE.md`、`AGENTS.md` 的顺序选择第一个可用文件。
 
 <details>
 <summary><b>凭据</b></summary>

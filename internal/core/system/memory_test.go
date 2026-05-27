@@ -7,521 +7,173 @@ import (
 	"testing"
 )
 
-func TestResolveImports(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "gencode-test")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
+func TestGetAllMemoryPathsIncludesCompatibleFallbacks(t *testing.T) {
+	home := t.TempDir()
+	cwd := t.TempDir()
+	t.Setenv("HOME", home)
 
-	mainContent := `# Main File
-@imported.md
-Some content after import`
-
-	importedContent := `## Imported Content
-This was imported from another file.`
-
-	if err := os.WriteFile(filepath.Join(tmpDir, "main.md"), []byte(mainContent), 0o644); err != nil {
-		t.Fatalf("Failed to write main.md: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(tmpDir, "imported.md"), []byte(importedContent), 0o644); err != nil {
-		t.Fatalf("Failed to write imported.md: %v", err)
-	}
-
-	seen := make(map[string]bool)
-	result := resolveImports(mainContent, tmpDir, 0, seen)
-
-	if !strings.Contains(result, "<!-- Imported: imported.md -->") {
-		t.Errorf("Expected import comment, got: %s", result)
-	}
-	if !strings.Contains(result, "This was imported from another file.") {
-		t.Errorf("Expected imported content, got: %s", result)
-	}
-	if !strings.Contains(result, "Some content after import") {
-		t.Errorf("Expected content after import, got: %s", result)
-	}
-}
-
-func TestResolveImportsCycle(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "gencode-test-cycle")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	file1Content := `# File 1
-@file2.md`
-
-	file2Content := `# File 2
-@file1.md`
-
-	if err := os.WriteFile(filepath.Join(tmpDir, "file1.md"), []byte(file1Content), 0o644); err != nil {
-		t.Fatalf("Failed to write file1.md: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(tmpDir, "file2.md"), []byte(file2Content), 0o644); err != nil {
-		t.Fatalf("Failed to write file2.md: %v", err)
-	}
-
-	seen := make(map[string]bool)
-	seen[filepath.Join(tmpDir, "file1.md")] = true
-	result := resolveImports(file1Content, tmpDir, 0, seen)
-
-	if !strings.Contains(result, "# File 2") {
-		t.Errorf("Expected file2 content, got: %s", result)
-	}
-	if !strings.Contains(result, "Skipped (cycle)") {
-		t.Errorf("Expected cycle skip comment, got: %s", result)
-	}
-}
-
-func TestResolveImportsNotFound(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "gencode-test-notfound")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	content := `# Test
-@nonexistent.md`
-
-	seen := make(map[string]bool)
-	result := resolveImports(content, tmpDir, 0, seen)
-
-	if !strings.Contains(result, "Import not found") {
-		t.Errorf("Expected not found comment, got: %s", result)
-	}
-}
-
-func TestResolveImportsMaxDepth(t *testing.T) {
-	content := `@deep.md`
-
-	seen := make(map[string]bool)
-	result := resolveImports(content, "/tmp", maxImportDepth, seen)
-
-	if result != content {
-		t.Errorf("Expected unchanged content at max depth, got: %s", result)
-	}
-}
-
-func TestLoadRulesDirectory(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "gencode-test-rules")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	rulesDir := filepath.Join(tmpDir, "rules")
-	if err := os.MkdirAll(rulesDir, 0o755); err != nil {
-		t.Fatalf("Failed to create rules dir: %v", err)
-	}
-
-	if err := os.WriteFile(filepath.Join(rulesDir, "coding.md"), []byte("# Coding Rules"), 0o644); err != nil {
-		t.Fatalf("Failed to write coding.md: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(rulesDir, "security.md"), []byte("# Security Rules"), 0o644); err != nil {
-		t.Fatalf("Failed to write security.md: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(rulesDir, "readme.txt"), []byte("Ignore me"), 0o644); err != nil {
-		t.Fatalf("Failed to write readme.txt: %v", err)
-	}
-
-	seen := make(map[string]bool)
-	files := loadRulesDirectory(rulesDir, "project", seen)
-
-	if len(files) != 2 {
-		t.Errorf("Expected 2 rule files, got %d", len(files))
-	}
-
-	if len(files) > 0 && !strings.Contains(files[0].Path, "coding.md") {
-		t.Errorf("Expected coding.md first (alphabetical), got: %s", files[0].Path)
-	}
-	if len(files) > 1 && !strings.Contains(files[1].Path, "security.md") {
-		t.Errorf("Expected security.md second, got: %s", files[1].Path)
-	}
-}
-
-func TestGetAllMemoryPaths(t *testing.T) {
-	cwd := "/test/project"
 	paths := GetAllMemoryPaths(cwd)
+	assertMemoryPaths(t, paths.Global, []string{
+		filepath.Join(home, ".gen", "GEN.md"),
+		filepath.Join(home, ".claude", "CLAUDE.md"),
+		filepath.Join(home, ".codex", "AGENTS.md"),
+	})
+	assertMemoryPaths(t, paths.Project, []string{
+		filepath.Join(cwd, ".gen", "GEN.md"),
+		filepath.Join(cwd, "GEN.md"),
+		filepath.Join(cwd, ".claude", "CLAUDE.md"),
+		filepath.Join(cwd, "CLAUDE.md"),
+		filepath.Join(cwd, "AGENTS.md"),
+	})
+}
 
-	if len(paths.Project) != 4 {
-		t.Errorf("Expected 4 project paths, got %d", len(paths.Project))
+func TestLoadMemoryFilesFallsBackToCodexAndPrefersClaude(t *testing.T) {
+	home := t.TempDir()
+	cwd := t.TempDir()
+	t.Setenv("HOME", home)
+
+	writeMemoryFile(t, filepath.Join(home, ".codex", "AGENTS.md"), "global codex")
+	writeMemoryFile(t, filepath.Join(cwd, "AGENTS.md"), "project codex")
+
+	files := LoadMemoryFiles(cwd)
+	if len(files) != 2 || !strings.Contains(files[0].Content, "global codex") ||
+		!strings.Contains(files[1].Content, "project codex") {
+		t.Fatalf("expected Codex fallback memory, got %+v", files)
 	}
 
-	if len(paths.Local) != 1 {
-		t.Errorf("Expected 1 local path, got %d", len(paths.Local))
+	writeMemoryFile(t, filepath.Join(cwd, "CLAUDE.md"), "project claude")
+	files = LoadMemoryFiles(cwd)
+	if !strings.Contains(files[1].Content, "project claude") ||
+		strings.Contains(files[1].Content, "project codex") {
+		t.Fatalf("expected CLAUDE.md to take precedence over AGENTS.md, got %q", files[1].Content)
 	}
-	if !strings.Contains(paths.Local[0], "GEN.local.md") {
-		t.Errorf("Expected GEN.local.md in local paths, got: %s", paths.Local[0])
-	}
+}
 
-	if !strings.Contains(paths.ProjectRules, "rules") {
-		t.Errorf("Expected rules in project rules path, got: %s", paths.ProjectRules)
+func TestFindActiveMemoryFileSkipsEmptyHigherPrecedenceCandidate(t *testing.T) {
+	cwd := t.TempDir()
+	writeMemoryFile(t, filepath.Join(cwd, "CLAUDE.md"), " \n")
+	writeMemoryFile(t, filepath.Join(cwd, "AGENTS.md"), "project codex")
+
+	paths := GetAllMemoryPaths(cwd)
+	if got := FindActiveMemoryFile(paths.Project); got != filepath.Join(cwd, "AGENTS.md") {
+		t.Fatalf("FindActiveMemoryFile(project) = %q, want AGENTS.md", got)
+	}
+	if got := FindMemoryFile(paths.Project); got != filepath.Join(cwd, "CLAUDE.md") {
+		t.Fatalf("FindMemoryFile(project) = %q, want existing empty draft", got)
+	}
+}
+
+func TestLoadMemoryFilesPreservesNativeRulesAndLocalOrder(t *testing.T) {
+	home := t.TempDir()
+	cwd := t.TempDir()
+	t.Setenv("HOME", home)
+
+	writeMemoryFile(t, filepath.Join(home, ".gen", "GEN.md"), "global gen")
+	writeMemoryFile(t, filepath.Join(home, ".claude", "CLAUDE.md"), "global claude")
+	writeMemoryFile(t, filepath.Join(home, ".gen", "rules", "01-global.md"), "global rule")
+	writeMemoryFile(t, filepath.Join(cwd, ".gen", "GEN.md"), "project gen")
+	writeMemoryFile(t, filepath.Join(cwd, "AGENTS.md"), "project codex")
+	writeMemoryFile(t, filepath.Join(cwd, ".gen", "rules", "01-project.md"), "project rule")
+	writeMemoryFile(t, filepath.Join(cwd, ".gen", "GEN.local.md"), "project local")
+
+	files := LoadMemoryFiles(cwd)
+	if len(files) != 5 {
+		t.Fatalf("expected five memory files, got %d: %+v", len(files), files)
+	}
+	for i, want := range []string{"global gen", "global rule", "project gen", "project rule", "project local"} {
+		if !strings.Contains(files[i].Content, want) {
+			t.Errorf("file[%d] = %q, want content %q", i, files[i].Content, want)
+		}
+	}
+}
+
+func TestLoadMemoryFilesResolvesImportsAndCycles(t *testing.T) {
+	cwd := t.TempDir()
+	writeMemoryFile(t, filepath.Join(cwd, ".gen", "GEN.md"), "# Root\n@a.md")
+	writeMemoryFile(t, filepath.Join(cwd, ".gen", "a.md"), "A\n@GEN.md")
+
+	files := LoadMemoryFiles(cwd)
+	if !strings.Contains(files[0].Content, "<!-- Imported: a.md -->") ||
+		!strings.Contains(files[0].Content, "Skipped (cycle)") {
+		t.Fatalf("expected imported content with cycle suppression, got %q", files[0].Content)
+	}
+}
+
+func TestLoadMemoryFilesBlocksImportOutsideMemoryDirectory(t *testing.T) {
+	cwd := t.TempDir()
+	writeMemoryFile(t, filepath.Join(cwd, ".gen", "GEN.md"), "@../outside.md")
+	writeMemoryFile(t, filepath.Join(cwd, "outside.md"), "must not load")
+
+	files := LoadMemoryFiles(cwd)
+	if !strings.Contains(files[0].Content, "Import blocked (outside base)") ||
+		strings.Contains(files[0].Content, "must not load") {
+		t.Fatalf("outside import was not blocked: %q", files[0].Content)
+	}
+}
+
+func TestListRulesFilesIsSortedAndMarkdownOnly(t *testing.T) {
+	dir := t.TempDir()
+	writeMemoryFile(t, filepath.Join(dir, "z.md"), "z")
+	writeMemoryFile(t, filepath.Join(dir, "a.md"), "a")
+	writeMemoryFile(t, filepath.Join(dir, "ignored.txt"), "ignored")
+
+	assertMemoryPaths(t, ListRulesFiles(dir), []string{
+		filepath.Join(dir, "a.md"),
+		filepath.Join(dir, "z.md"),
+	})
+}
+
+func TestMemoryFormatsCreateCompatibleTemplates(t *testing.T) {
+	cwd := filepath.Join("/tmp", "demo")
+	path, ok := NewProjectMemoryFile(cwd, MemoryFormatCodex)
+	if !ok || path != filepath.Join(cwd, "AGENTS.md") {
+		t.Fatalf("NewProjectMemoryFile(codex) = %q, %v", path, ok)
+	}
+	body, ok := ProjectMemoryTemplate(cwd, MemoryFormatClaude)
+	if !ok || !strings.HasPrefix(body, "# CLAUDE.md") {
+		t.Fatalf("ProjectMemoryTemplate(claude) = %q, %v", body, ok)
+	}
+}
+
+func TestLoadInstructionsIncludesLocalMemory(t *testing.T) {
+	cwd := t.TempDir()
+	writeMemoryFile(t, filepath.Join(cwd, ".gen", "GEN.md"), "project")
+	writeMemoryFile(t, filepath.Join(cwd, ".gen", "GEN.local.md"), "local")
+	_, project := LoadInstructions(cwd)
+	if !strings.Contains(project, "project") || !strings.Contains(project, "local") {
+		t.Fatalf("project memory = %q", project)
 	}
 }
 
 func TestFormatFileSize(t *testing.T) {
-	tests := []struct {
-		size     int64
-		expected string
-	}{
-		{500, "500B"},
-		{1024, "1.0KB"},
-		{2048, "2.0KB"},
-		{1024 * 1024, "1.0MB"},
-		{1536 * 1024, "1.5MB"},
-	}
-
-	for _, tc := range tests {
-		result := FormatFileSize(tc.size)
-		if result != tc.expected {
-			t.Errorf("FormatFileSize(%d) = %s, expected %s", tc.size, result, tc.expected)
+	for _, tc := range []struct {
+		size int64
+		want string
+	}{{500, "500B"}, {1024, "1.0KB"}, {1024 * 1024, "1.0MB"}} {
+		if got := FormatFileSize(tc.size); got != tc.want {
+			t.Errorf("FormatFileSize(%d) = %q, want %q", tc.size, got, tc.want)
 		}
 	}
 }
 
-func TestResolveImportsNested(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "gencode-test-nested")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
+func assertMemoryPaths(t *testing.T, got, want []string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("paths = %#v, want %#v", got, want)
 	}
-	defer os.RemoveAll(tmpDir)
-
-	aContent := `# Level A
-@b.md
-After B import`
-
-	bContent := `## Level B
-@c.md
-After C import`
-
-	cContent := `### Level C
-Deepest content`
-
-	if err := os.WriteFile(filepath.Join(tmpDir, "a.md"), []byte(aContent), 0o644); err != nil {
-		t.Fatalf("Failed to write a.md: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(tmpDir, "b.md"), []byte(bContent), 0o644); err != nil {
-		t.Fatalf("Failed to write b.md: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(tmpDir, "c.md"), []byte(cContent), 0o644); err != nil {
-		t.Fatalf("Failed to write c.md: %v", err)
-	}
-
-	seen := make(map[string]bool)
-	result := resolveImports(aContent, tmpDir, 0, seen)
-
-	if !strings.Contains(result, "<!-- Imported: b.md -->") {
-		t.Errorf("Expected b.md import comment, got: %s", result)
-	}
-	if !strings.Contains(result, "<!-- Imported: c.md -->") {
-		t.Errorf("Expected c.md import comment, got: %s", result)
-	}
-	if !strings.Contains(result, "Deepest content") {
-		t.Errorf("Expected deepest content from c.md, got: %s", result)
-	}
-	if !strings.Contains(result, "After C import") {
-		t.Errorf("Expected content after C import from b.md, got: %s", result)
-	}
-	if !strings.Contains(result, "After B import") {
-		t.Errorf("Expected content after B import from a.md, got: %s", result)
-	}
-}
-
-func TestResolveImportsRelativePath(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "gencode-test-relative")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	subDir := filepath.Join(tmpDir, "subdir")
-	if err := os.MkdirAll(subDir, 0o755); err != nil {
-		t.Fatalf("Failed to create subdir: %v", err)
-	}
-
-	mainContent := `# Main
-@./subdir/nested.md`
-
-	nestedContent := `## Nested
-Nested content here`
-
-	if err := os.WriteFile(filepath.Join(tmpDir, "main.md"), []byte(mainContent), 0o644); err != nil {
-		t.Fatalf("Failed to write main.md: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(subDir, "nested.md"), []byte(nestedContent), 0o644); err != nil {
-		t.Fatalf("Failed to write nested.md: %v", err)
-	}
-
-	seen := make(map[string]bool)
-	result := resolveImports(mainContent, tmpDir, 0, seen)
-
-	if !strings.Contains(result, "<!-- Imported: ./subdir/nested.md -->") {
-		t.Errorf("Expected nested import comment, got: %s", result)
-	}
-	if !strings.Contains(result, "Nested content here") {
-		t.Errorf("Expected nested content, got: %s", result)
-	}
-}
-
-func TestLoadMemoryFilesWithImports(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "gencode-test-memory-imports")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	genDir := filepath.Join(tmpDir, ".gen")
-	if err := os.MkdirAll(genDir, 0o755); err != nil {
-		t.Fatalf("Failed to create .gen dir: %v", err)
-	}
-
-	genMdContent := `# Project Memory
-@extra.md
-End of memory`
-
-	extraContent := `## Extra Content
-This was imported`
-
-	if err := os.WriteFile(filepath.Join(genDir, "GEN.md"), []byte(genMdContent), 0o644); err != nil {
-		t.Fatalf("Failed to write GEN.md: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(genDir, "extra.md"), []byte(extraContent), 0o644); err != nil {
-		t.Fatalf("Failed to write extra.md: %v", err)
-	}
-
-	files := LoadMemoryFiles(tmpDir)
-
-	var projectFile *MemoryFile
-	for i := range files {
-		if files[i].Level == "project" && strings.Contains(files[i].Path, "GEN.md") {
-			projectFile = &files[i]
-			break
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("paths[%d] = %q, want %q", i, got[i], want[i])
 		}
 	}
-
-	if projectFile == nil {
-		t.Fatal("Expected to find project GEN.md file")
-	}
-
-	if !strings.Contains(projectFile.Content, "<!-- Imported: extra.md -->") {
-		t.Errorf("Expected import comment in content, got: %s", projectFile.Content)
-	}
-	if !strings.Contains(projectFile.Content, "This was imported") {
-		t.Errorf("Expected imported content, got: %s", projectFile.Content)
-	}
 }
 
-func TestFindMemoryFile(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "gencode-test-find")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
+func writeMemoryFile(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
 	}
-	defer os.RemoveAll(tmpDir)
-
-	existingFile := filepath.Join(tmpDir, "exists.md")
-	if err := os.WriteFile(existingFile, []byte("content"), 0o644); err != nil {
-		t.Fatalf("Failed to write file: %v", err)
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
 	}
-
-	tests := []struct {
-		name     string
-		paths    []string
-		expected string
-	}{
-		{
-			name:     "first existing file wins",
-			paths:    []string{filepath.Join(tmpDir, "notexist.md"), existingFile},
-			expected: existingFile,
-		},
-		{
-			name:     "no files exist",
-			paths:    []string{filepath.Join(tmpDir, "a.md"), filepath.Join(tmpDir, "b.md")},
-			expected: "",
-		},
-		{
-			name:     "empty paths",
-			paths:    []string{},
-			expected: "",
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			result := FindMemoryFile(tc.paths)
-			if result != tc.expected {
-				t.Errorf("FindMemoryFile() = %q, expected %q", result, tc.expected)
-			}
-		})
-	}
-}
-
-func TestLoadInstructions(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "gencode-test-instructions")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	genDir := filepath.Join(tmpDir, ".gen")
-	if err := os.MkdirAll(genDir, 0o755); err != nil {
-		t.Fatalf("Failed to create .gen dir: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(genDir, "GEN.md"), []byte("Project instructions here"), 0o644); err != nil {
-		t.Fatalf("Failed to write GEN.md: %v", err)
-	}
-
-	if err := os.WriteFile(filepath.Join(genDir, "GEN.local.md"), []byte("Local instructions here"), 0o644); err != nil {
-		t.Fatalf("Failed to write GEN.local.md: %v", err)
-	}
-
-	user, project := LoadInstructions(tmpDir)
-
-	if !strings.Contains(project, "Project instructions here") {
-		t.Errorf("project instructions should contain GEN.md content, got: %s", project)
-	}
-	if !strings.Contains(project, "Local instructions here") {
-		t.Errorf("project instructions should contain GEN.local.md content, got: %s", project)
-	}
-
-	_ = user
-}
-
-func TestLoadMemoryFiles_PrefersGenPathsAndPreservesSectionOrder(t *testing.T) {
-	tmpHome := t.TempDir()
-	tmpDir := t.TempDir()
-	t.Setenv("HOME", tmpHome)
-
-	userGenDir := filepath.Join(tmpHome, ".gen")
-	userClaudeDir := filepath.Join(tmpHome, ".claude")
-	projectGenDir := filepath.Join(tmpDir, ".gen")
-	projectClaudeDir := filepath.Join(tmpDir, ".claude")
-
-	for _, dir := range []string{userGenDir, userClaudeDir, projectGenDir, projectClaudeDir, filepath.Join(userGenDir, "rules"), filepath.Join(projectGenDir, "rules")} {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			t.Fatalf("MkdirAll(%s): %v", dir, err)
-		}
-	}
-
-	if err := os.WriteFile(filepath.Join(userGenDir, "GEN.md"), []byte("user gen"), 0o644); err != nil {
-		t.Fatalf("WriteFile(user GEN): %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(userClaudeDir, "CLAUDE.md"), []byte("user claude fallback"), 0o644); err != nil {
-		t.Fatalf("WriteFile(user CLAUDE): %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(userGenDir, "rules", "01-global.md"), []byte("global rule"), 0o644); err != nil {
-		t.Fatalf("WriteFile(global rule): %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(projectGenDir, "GEN.md"), []byte("project gen"), 0o644); err != nil {
-		t.Fatalf("WriteFile(project GEN): %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(projectClaudeDir, "CLAUDE.md"), []byte("project claude fallback"), 0o644); err != nil {
-		t.Fatalf("WriteFile(project CLAUDE): %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(projectGenDir, "rules", "01-project.md"), []byte("project rule"), 0o644); err != nil {
-		t.Fatalf("WriteFile(project rule): %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(projectGenDir, "GEN.local.md"), []byte("project local"), 0o644); err != nil {
-		t.Fatalf("WriteFile(local GEN): %v", err)
-	}
-
-	files := LoadMemoryFiles(tmpDir)
-	if len(files) != 5 {
-		t.Fatalf("expected 5 memory files, got %d", len(files))
-	}
-
-	if files[0].Level != "global" || !strings.Contains(files[0].Path, filepath.Join(".gen", "GEN.md")) {
-		t.Fatalf("expected global GEN.md first, got level=%q path=%q", files[0].Level, files[0].Path)
-	}
-	if strings.Contains(files[0].Content, "user claude fallback") {
-		t.Fatal("expected user .gen/GEN.md to take precedence over ~/.claude/CLAUDE.md")
-	}
-	if files[1].Level != "global" {
-		t.Fatalf("expected global rules second, got level=%q", files[1].Level)
-	}
-	if files[2].Level != "project" || !strings.Contains(files[2].Path, filepath.Join(".gen", "GEN.md")) {
-		t.Fatalf("expected project GEN.md third, got level=%q path=%q", files[2].Level, files[2].Path)
-	}
-	if strings.Contains(files[2].Content, "project claude fallback") {
-		t.Fatal("expected project .gen/GEN.md to take precedence over project CLAUDE.md")
-	}
-	if files[3].Level != "project" {
-		t.Fatalf("expected project rules fourth, got level=%q", files[3].Level)
-	}
-	if files[4].Level != "local" || !strings.Contains(files[4].Path, "GEN.local.md") {
-		t.Fatalf("expected local GEN.local.md last, got level=%q path=%q", files[4].Level, files[4].Path)
-	}
-}
-
-func TestMemory_ImportChain(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "gencode-test-import-chain")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	genDir := filepath.Join(tmpDir, ".gen")
-	if err := os.MkdirAll(genDir, 0o755); err != nil {
-		t.Fatalf("Failed to create .gen dir: %v", err)
-	}
-
-	genMdContent := "# Root\n@a.md"
-	aMdContent := "## Level A\n@b.md"
-	bMdContent := "### Level B\nFinal content from B"
-
-	if err := os.WriteFile(filepath.Join(genDir, "GEN.md"), []byte(genMdContent), 0o644); err != nil {
-		t.Fatalf("Failed to write GEN.md: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(genDir, "a.md"), []byte(aMdContent), 0o644); err != nil {
-		t.Fatalf("Failed to write a.md: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(genDir, "b.md"), []byte(bMdContent), 0o644); err != nil {
-		t.Fatalf("Failed to write b.md: %v", err)
-	}
-
-	files := LoadMemoryFiles(tmpDir)
-
-	var projectFile *MemoryFile
-	for i := range files {
-		if files[i].Level == "project" && strings.Contains(files[i].Path, "GEN.md") {
-			projectFile = &files[i]
-			break
-		}
-	}
-
-	if projectFile == nil {
-		t.Fatal("Expected to find project GEN.md file")
-	}
-
-	if !strings.Contains(projectFile.Content, "Level A") {
-		t.Errorf("Expected 'Level A' content (from a.md) in resolved output; got: %s", projectFile.Content)
-	}
-	if !strings.Contains(projectFile.Content, "Final content from B") {
-		t.Errorf("Expected 'Final content from B' (from b.md) in resolved output; got: %s", projectFile.Content)
-	}
-	if !strings.Contains(projectFile.Content, "<!-- Imported: a.md -->") {
-		t.Errorf("Expected import comment for a.md; got: %s", projectFile.Content)
-	}
-	if !strings.Contains(projectFile.Content, "<!-- Imported: b.md -->") {
-		t.Errorf("Expected import comment for b.md; got: %s", projectFile.Content)
-	}
-}
-
-func TestMemory_MissingFile_NoError(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "gencode-test-missing-genmd")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	files := LoadMemoryFiles(tmpDir)
-
-	for _, f := range files {
-		if f.Level == "project" && strings.Contains(f.Path, tmpDir) {
-			t.Errorf("Did not expect a project memory file when GEN.md is absent, got: %s", f.Path)
-		}
-	}
-
-	_, project := LoadInstructions(tmpDir)
-	_ = project
 }

@@ -1,13 +1,12 @@
-# Gen Code Agent Guide
+# Gen Code Contributor Guide
 
 This file is the short navigation map for agents and contributors. Keep durable
 knowledge in `docs/`; keep this file focused on where to look and what rules to
 follow before changing code.
 
-`AGENTS.md` is a static navigation aid for whoever opens the repository.
-`GEN.md` and `CLAUDE.md` at the project root are loaded into the running
-agent's system prompt at startup — they belong to runtime context, not to
-this file. Do not mix the two.
+Runtime memory files are separate from this navigation page. Gen Code can
+consume `GEN.md`, `CLAUDE.md`, or `AGENTS.md` according to its memory-file
+precedence.
 
 ## Start Here
 
@@ -37,18 +36,17 @@ this file. Do not mix the two.
 
 Before editing internal packages, read:
 
-- `docs/reference/dependency-rules.md` — allowed import directions and the
+- `docs/reference/dependency-rules.md` - allowed import directions and the
   rule for each layer.
-- `docs/design/principles.md` — coding principles for package structure,
+- `docs/design/principles.md` - coding principles for package structure,
   interfaces, tests, and context handling.
 
 Update those files when the rules change. Do not duplicate them here.
 
 ## Common Commands
 
-See `docs/operations/development.md` for build / test / lint / format
-and the sandbox-friendly `GOCACHE` workaround. Update that file when
-commands change. Do not duplicate them here.
+See `docs/operations/development.md` for build / test / lint / format and the
+sandbox-friendly `GOCACHE` workaround. Update that file when commands change.
 
 ## Documentation Rules
 

@@ -43,37 +43,20 @@ func LoadInstructions(cwd string) (user, project string) {
 // Returns files in order: global, global rules, project, project rules, local.
 func LoadMemoryFiles(cwd string) []MemoryFile {
 	var files []MemoryFile
-	homeDir, _ := os.UserHomeDir()
 	seen := make(map[string]bool)
+	paths := GetAllMemoryPaths(cwd)
 
-	userSources := []string{
-		filepath.Join(homeDir, ".gen", "GEN.md"),
-		filepath.Join(homeDir, ".claude", "CLAUDE.md"),
-	}
-	if f := loadMemoryFile(userSources, "global", seen); f != nil {
+	if f := loadMemoryFile(paths.Global, "global", seen); f != nil {
 		files = append(files, *f)
 	}
+	files = append(files, loadRulesDirectory(paths.GlobalRules, "global", seen)...)
 
-	userRulesDir := filepath.Join(homeDir, ".gen", "rules")
-	files = append(files, loadRulesDirectory(userRulesDir, "global", seen)...)
-
-	projectSources := []string{
-		filepath.Join(cwd, ".gen", "GEN.md"),
-		filepath.Join(cwd, "GEN.md"),
-		filepath.Join(cwd, ".claude", "CLAUDE.md"),
-		filepath.Join(cwd, "CLAUDE.md"),
-	}
-	if f := loadMemoryFile(projectSources, "project", seen); f != nil {
+	if f := loadMemoryFile(paths.Project, "project", seen); f != nil {
 		files = append(files, *f)
 	}
+	files = append(files, loadRulesDirectory(paths.ProjectRules, "project", seen)...)
 
-	projectRulesDir := filepath.Join(cwd, ".gen", "rules")
-	files = append(files, loadRulesDirectory(projectRulesDir, "project", seen)...)
-
-	localSources := []string{
-		filepath.Join(cwd, ".gen", "GEN.local.md"),
-	}
-	if f := loadMemoryFile(localSources, "local", seen); f != nil {
+	if f := loadMemoryFile(paths.Local, "local", seen); f != nil {
 		files = append(files, *f)
 	}
 
@@ -202,23 +185,29 @@ type MemoryPaths struct {
 // GetAllMemoryPaths returns all memory paths organized by category.
 func GetAllMemoryPaths(cwd string) MemoryPaths {
 	homeDir, _ := os.UserHomeDir()
-	return MemoryPaths{
-		Global: []string{
-			filepath.Join(homeDir, ".gen", "GEN.md"),
-			filepath.Join(homeDir, ".claude", "CLAUDE.md"),
-		},
-		GlobalRules: filepath.Join(homeDir, ".gen", "rules"),
-		Project: []string{
-			filepath.Join(cwd, ".gen", "GEN.md"),
-			filepath.Join(cwd, "GEN.md"),
-			filepath.Join(cwd, ".claude", "CLAUDE.md"),
-			filepath.Join(cwd, "CLAUDE.md"),
-		},
-		ProjectRules: filepath.Join(cwd, ".gen", "rules"),
-		Local: []string{
-			filepath.Join(cwd, ".gen", "GEN.local.md"),
-		},
+	var global, project []string
+	for _, format := range memoryFormats {
+		global = append(global, format.GlobalPaths(homeDir)...)
+		project = append(project, format.ProjectPaths(cwd)...)
 	}
+	return MemoryPaths{
+		Global:       global,
+		GlobalRules:  filepath.Join(homeDir, ".gen", "rules"),
+		Project:      project,
+		ProjectRules: filepath.Join(cwd, ".gen", "rules"),
+		Local:        []string{filepath.Join(cwd, ".gen", "GEN.local.md")},
+	}
+}
+
+// FindActiveMemoryFile returns the first readable non-empty file, matching loading.
+func FindActiveMemoryFile(paths []string) string {
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err == nil && strings.TrimSpace(string(data)) != "" {
+			return path
+		}
+	}
+	return ""
 }
 
 // FindMemoryFile returns the first existing file path from the given list.

@@ -50,4 +50,3 @@ types, no kitchen-sink `Service`:
 - [`reminder.md`](reminder.md) — concrete `*Service` struct, small 2-method `Provider` interface.
 - [`search.md`](search.md) — pure consumer-defined `Provider`, no singleton.
 - [`worktree.md`](worktree.md) — two functions, no types.
-
