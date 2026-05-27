@@ -27,5 +27,6 @@ vendor/
 .mcp.json
 CLAUDE.md
 CLAUDE.local.md
+AGENTS.md
 .autodev/
 /layercheck
